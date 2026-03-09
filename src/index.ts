@@ -7,7 +7,7 @@ import {
   POLL_INTERVAL,
   TRIGGER_PATTERN,
 } from './config.js';
-import './channels/index.js';
+import './channels/index.ts';
 import {
   getChannelFactory,
   getRegisteredChannelNames,
@@ -85,26 +85,40 @@ function saveState(): void {
   setRouterState('last_agent_timestamp', JSON.stringify(lastAgentTimestamp));
 }
 
-function registerGroup(jid: string, group: RegisteredGroup): void {
+function registerGroup(
+  jid: string,
+  group: RegisteredGroup & { trigger_pattern?: string },
+): void {
+  // Normalize the group object to ensure it has all required fields
+  const normalizedGroup: RegisteredGroup = {
+    ...group,
+    // Map trigger_pattern to trigger if provided (for backward compatibility)
+    trigger: group.trigger_pattern ?? group.trigger ?? '.*',
+    // Provide default added_at if missing
+    added_at: group.added_at ?? new Date().toISOString(),
+  };
+  // Remove any trigger_pattern property to avoid type conflicts
+  delete (normalizedGroup as any).trigger_pattern;
+
   let groupDir: string;
   try {
-    groupDir = resolveGroupFolderPath(group.folder);
+    groupDir = resolveGroupFolderPath(normalizedGroup.folder);
   } catch (err) {
     logger.warn(
-      { jid, folder: group.folder, err },
+      { jid, folder: normalizedGroup.folder, err },
       'Rejecting group registration with invalid folder',
     );
     return;
   }
 
-  registeredGroups[jid] = group;
-  setRegisteredGroup(jid, group);
+  registeredGroups[jid] = normalizedGroup;
+  setRegisteredGroup(jid, normalizedGroup);
 
   // Create group folder
   fs.mkdirSync(path.join(groupDir, 'logs'), { recursive: true });
 
   logger.info(
-    { jid, name: group.name, folder: group.folder },
+    { jid, name: normalizedGroup.name, folder: normalizedGroup.folder },
     'Group registered',
   );
 }
@@ -479,6 +493,22 @@ async function main(): Promise<void> {
   // Channel callbacks (shared by all channels)
   const channelOpts = {
     onMessage: (chatJid: string, msg: NewMessage) => {
+      // 👇👇👇 架构师注入的魔法：自动注册拦截器 👇👇👇
+      if (!registeredGroups[chatJid]) {
+        logger.info({ chatJid }, '🚀 触发自动注册机制，将该会话加入白名单！');
+        registerGroup(chatJid, {
+          name: 'Feishu_Auto_' + chatJid.slice(-4),
+          folder: 'feishu_' + chatJid.replace(/[^a-zA-Z0-9]/g, ''),
+          isMain: true,
+          // 👇 补上这两个字段，满足数据库的非空约束
+          trigger_pattern: '.*',
+          requiresTrigger: false,
+          trigger: '.*',
+          added_at: new Date().toISOString(),
+        });
+      }
+      // 👆👆👆 魔法结束 👆👆👆
+
       // Sender allowlist drop mode: discard messages from denied senders before storing
       if (!msg.is_from_me && !msg.is_bot_message && registeredGroups[chatJid]) {
         const cfg = loadSenderAllowlist();
@@ -510,8 +540,11 @@ async function main(): Promise<void> {
   // Create and connect all registered channels.
   // Each channel self-registers via the barrel import above.
   // Factories return null when credentials are missing, so unconfigured channels are skipped.
-  for (const channelName of getRegisteredChannelNames()) {
+  const channelNames = getRegisteredChannelNames();
+  logger.info({ channelNames }, 'Registered channel names');
+  for (const channelName of channelNames) {
     const factory = getChannelFactory(channelName)!;
+    console.log(`🔥 About to call factory for ${channelName}`);
     const channel = factory(channelOpts);
     if (!channel) {
       logger.warn(

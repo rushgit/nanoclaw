@@ -8,5 +8,9 @@
 // slack
 
 // telegram
+import './telegram';
+
+// feishu
+import './feishu';
 
 // whatsapp

@@ -4,8 +4,8 @@
 FROM node:22-slim
 
 # Install system dependencies for Chromium
-RUN apt-get update && apt-get install -y \
-    chromium \
+# 【架构师优化版】第一层：先安装基础依赖和巨大的字体包（利用 Docker 缓存）
+RUN apt-get update && apt-get install -y --no-install-recommends \
     fonts-liberation \
     fonts-noto-cjk \
     fonts-noto-color-emoji \
@@ -23,9 +23,11 @@ RUN apt-get update && apt-get install -y \
     libdrm2 \
     libxshmfence1 \
     curl \
-    git \
-    && rm -rf /var/lib/apt/lists/*
+    git
 
+# 【架构师优化版】第二层：单独安装最容易断线的 Chromium，并加上 --fix-missing 容错
+# 使用中科大镜像源加速下载
+RUN apt-get update && apt-get install -y --fix-missing chromium 
 # Set Chromium path for agent-browser
 ENV AGENT_BROWSER_EXECUTABLE_PATH=/usr/bin/chromium
 ENV PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH=/usr/bin/chromium

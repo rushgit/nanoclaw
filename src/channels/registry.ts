@@ -4,6 +4,7 @@ import {
   OnChatMetadata,
   RegisteredGroup,
 } from '../types.js';
+import { logger } from '../logger.js';
 
 export interface ChannelOpts {
   onMessage: OnInboundMessage;
@@ -16,6 +17,7 @@ export type ChannelFactory = (opts: ChannelOpts) => Channel | null;
 const registry = new Map<string, ChannelFactory>();
 
 export function registerChannel(name: string, factory: ChannelFactory): void {
+  logger.info(`Registering channel: ${name}`);
   registry.set(name, factory);
 }
 
